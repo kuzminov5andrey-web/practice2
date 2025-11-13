@@ -1,55 +1,60 @@
 import xml.etree.ElementTree as ET
-import sys
+import urllib.request
+import gzip
+import io
 
-def validate_config(params):
-    errors = []
-    
-    if not params.get('package') or not params['package'].strip():
-        errors.append("Package name is required")
-    
-    if not params.get('repo') or not params['repo'].strip():
-        errors.append("Repository URL is required")
-    
-    if not params.get('output') or not params['output'].strip():
-        errors.append("Output filename is required")
-    
-    try:
-        depth = int(params.get('depth', 1))
-        if depth < 1:
-            errors.append("Depth must be positive number")
-    except (ValueError, TypeError):
-        errors.append("Depth must be a number")
-    
-    try:
-        test_mode = params.get('test_mode', 'false').lower()
-        if test_mode not in ('true', 'false', '1', '0'):
-            errors.append("Test mode must be true/false")
-    except:
-        errors.append("Invalid test mode")
-    
-    return errors
+config = ET.parse('config.xml').getroot()
+params = {elem.tag: elem.text for elem in config}
+
+print("Config:")
+for k, v in params.items():
+    print(f"  {k}: {v}")
+package = params['package']
+repo = params['repo']
+version = params.get('version', '')
 
 try:
-    config = ET.parse('config.xml').getroot()
-    params = {elem.tag: elem.text for elem in config}
+    url = f"{repo}/main/binary-amd64/Packages.gz"
+    with urllib.request.urlopen(url) as response:
+        data = gzip.decompress(response.read()).decode()
+    deps = []
     
-    errors = validate_config(params)
-    if errors:
-        print("Configuration errors:")
-        for error in errors:
-            print(f"  - {error}")
-        sys.exit(1)
+    target_package = "nginx-core" if package == "nginx" else package
+    package_found = False
+    available_versions = []
     
-    print("Config:")
-    for k, v in params.items():
-        print(f"  {k}: {v}")
-        
-except FileNotFoundError:
-    print("Error: config.xml file not found")
-    sys.exit(1)
-except ET.ParseError:
-    print("Error: Invalid XML format in config.xml")
-    sys.exit(1)
+    for block in data.split('\n\n'):
+        if f"Package: {target_package}" in block:
+            # Ищем версию в блоке
+            block_version = None
+            for line in block.split('\n'):
+                if line.startswith('Version: '):
+                    block_version = line[9:].strip()
+                    available_versions.append(block_version)
+                    
+                    # Проверяем совпадение версии
+                    if version in block_version:  # Ищем частичное совпадение
+                        package_found = True
+                        # Парсим зависимости
+                        for dep_line in block.split('\n'):
+                            if dep_line.startswith('Depends:'):
+                                for dep in dep_line[8:].split(','):
+                                    dep = dep.split('(')[0].split('|')[0].split(':')[0].strip()
+                                    if dep and dep not in deps and dep != target_package:
+                                        deps.append(dep)
+                        break
+            break
+    
+    if not package_found:
+        if available_versions:
+            print(f"\nError: Version '{version}' not found for {package}")
+            print(f"Available versions: {', '.join(available_versions)}")
+        else:
+            print(f"\nError: Package {package} not found in repository")
+    else:
+        print(f"\nReal dependencies of {package} {version}:")
+        for dep in deps:
+            print(f"  - {dep}")
+
 except Exception as e:
     print(f"Error: {e}")
-    sys.exit(1)

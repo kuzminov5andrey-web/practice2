@@ -6,55 +6,56 @@ import io
 config = ET.parse('config.xml').getroot()
 params = {elem.tag: elem.text for elem in config}
 
-print("Config:")
-for k, v in params.items():
-    print(f"  {k}: {v}")
-package = params['package']
+packages_to_analyze = ["nginx", "python3", "git"]
 repo = params['repo']
-version = params.get('version', '')
 
-try:
-    url = f"{repo}/main/binary-amd64/Packages.gz"
-    with urllib.request.urlopen(url) as response:
-        data = gzip.decompress(response.read()).decode()
-    deps = []
-    
-    target_package = "nginx-core" if package == "nginx" else package
-    package_found = False
-    available_versions = []
-    
-    for block in data.split('\n\n'):
-        if f"Package: {target_package}" in block:
-            # Ищем версию в блоке
-            block_version = None
-            for line in block.split('\n'):
-                if line.startswith('Version: '):
-                    block_version = line[9:].strip()
-                    available_versions.append(block_version)
-                    
-                    # Проверяем совпадение версии
-                    if version in block_version:  # Ищем частичное совпадение
-                        package_found = True
-                        # Парсим зависимости
-                        for dep_line in block.split('\n'):
-                            if dep_line.startswith('Depends:'):
-                                for dep in dep_line[8:].split(','):
-                                    dep = dep.split('(')[0].split('|')[0].split(':')[0].strip()
-                                    if dep and dep not in deps and dep != target_package:
-                                        deps.append(dep)
-                        break
-            break
-    
-    if not package_found:
-        if available_versions:
-            print(f"\nError: Version '{version}' not found for {package}")
-            print(f"Available versions: {', '.join(available_versions)}")
-        else:
-            print(f"\nError: Package {package} not found in repository")
-    else:
-        print(f"\nReal dependencies of {package} {version}:")
-        for dep in deps:
-            print(f"  - {dep}")
+def get_package_dependencies(package_name):
+    try:
+        url = f"{repo}/main/binary-amd64/Packages.gz"
+        with urllib.request.urlopen(url) as response:
+            data = gzip.decompress(response.read()).decode()
+        
+        deps = []
+        target = "nginx-core" if package_name == "nginx" else package_name
+        
+        for block in data.split('\n\n'):
+            if f"Package: {target}" in block:
+                for line in block.split('\n'):
+                    if line.startswith('Depends:'):
+                        for dep in line[8:].split(','):
+                            dep = dep.split('(')[0].split('|')[0].split(':')[0].strip()
+                            if dep and dep != target and dep not in deps:
+                                deps.append(dep)
+                break
+        return deps
+    except Exception as e:
+        return []
 
-except Exception as e:
-    print(f"Error: {e}")
+all_data = {}
+for package in packages_to_analyze:
+    deps = get_package_dependencies(package)
+    all_data[package] = deps
+
+plantuml_code = "@startuml\nleft to right direction\n"
+
+common_deps = {}
+for package, deps in all_data.items():
+    for dep in deps:
+        if dep not in common_deps:
+            common_deps[dep] = []
+        common_deps[dep].append(package)
+
+for package in packages_to_analyze:
+    plantuml_code += f'rectangle "{package}"\n'
+
+for dep, packages in common_deps.items():
+    plantuml_code += f'rectangle "{dep}"\n'
+    for package in packages:
+        plantuml_code += f'"{package}" --> "{dep}"\n'
+
+plantuml_code += "@enduml"
+
+with open("graph.puml", "w", encoding="utf-8") as f:
+    f.write(plantuml_code)
+
+print("graph.puml")

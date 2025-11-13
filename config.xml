@@ -1,9 +1,9 @@
 <config>
-    <package>requests</package>
-    <repo>https://pypi.org/simple</repo>
-    <test_mode>true</test_mode>
-    <version>2.31.0</version>
+    <package>nginx</package>
+    <repo>http://archive.ubuntu.com/ubuntu/dists/focal</repo>
+    <test_mode>false</test_mode>
+    <version>1.17.10</version>
     <output>graph.png</output>
     <depth>3</depth>
-    <filter>test</filter>
+    <filter></filter>
 </config>
